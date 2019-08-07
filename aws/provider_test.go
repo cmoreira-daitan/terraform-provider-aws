@@ -11,7 +11,6 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/endpoints"
-	"github.com/aws/aws-sdk-go/service/organizations"
 	"github.com/hashicorp/terraform/helper/resource"
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/terraform"
@@ -102,27 +101,6 @@ func testAccAwsProviderAccountID(provider *schema.Provider) string {
 	return client.accountid
 }
 
-// testAccCheckResourceAttrAccountID ensures the Terraform state exactly matches the account ID
-func testAccCheckResourceAttrAccountID(resourceName, attributeName string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		return resource.TestCheckResourceAttr(resourceName, attributeName, testAccGetAccountID())(s)
-	}
-}
-
-// testAccCheckResourceAttrRegionalARN ensures the Terraform state exactly matches a formatted ARN with region
-func testAccCheckResourceAttrRegionalARN(resourceName, attributeName, arnService, arnResource string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		attributeValue := arn.ARN{
-			AccountID: testAccGetAccountID(),
-			Partition: testAccGetPartition(),
-			Region:    testAccGetRegion(),
-			Resource:  arnResource,
-			Service:   arnService,
-		}.String()
-		return resource.TestCheckResourceAttr(resourceName, attributeName, attributeValue)(s)
-	}
-}
-
 // testAccMatchResourceAttrRegionalARN ensures the Terraform state regexp matches a formatted ARN with region
 func testAccMatchResourceAttrRegionalARN(resourceName, attributeName, arnService string, arnResourceRegexp *regexp.Regexp) resource.TestCheckFunc {
 	return func(s *terraform.State) error {
@@ -130,39 +108,6 @@ func testAccMatchResourceAttrRegionalARN(resourceName, attributeName, arnService
 			AccountID: testAccGetAccountID(),
 			Partition: testAccGetPartition(),
 			Region:    testAccGetRegion(),
-			Resource:  arnResourceRegexp.String(),
-			Service:   arnService,
-		}.String()
-
-		attributeMatch, err := regexp.Compile(arnRegexp)
-
-		if err != nil {
-			return fmt.Errorf("Unable to compile ARN regexp (%s): %s", arnRegexp, err)
-		}
-
-		return resource.TestMatchResourceAttr(resourceName, attributeName, attributeMatch)(s)
-	}
-}
-
-// testAccCheckResourceAttrGlobalARN ensures the Terraform state exactly matches a formatted ARN without region
-func testAccCheckResourceAttrGlobalARN(resourceName, attributeName, arnService, arnResource string) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		attributeValue := arn.ARN{
-			AccountID: testAccGetAccountID(),
-			Partition: testAccGetPartition(),
-			Resource:  arnResource,
-			Service:   arnService,
-		}.String()
-		return resource.TestCheckResourceAttr(resourceName, attributeName, attributeValue)(s)
-	}
-}
-
-// testAccMatchResourceAttrGlobalARN ensures the Terraform state regexp matches a formatted ARN without region
-func testAccMatchResourceAttrGlobalARN(resourceName, attributeName, arnService string, arnResourceRegexp *regexp.Regexp) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		arnRegexp := arn.ARN{
-			AccountID: testAccGetAccountID(),
-			Partition: testAccGetPartition(),
 			Resource:  arnResourceRegexp.String(),
 			Service:   arnService,
 		}.String()
@@ -196,160 +141,6 @@ func testAccGetPartition() string {
 		return partition.ID()
 	}
 	return "aws"
-}
-
-func testAccAlternateAccountPreCheck(t *testing.T) {
-	if os.Getenv("AWS_ALTERNATE_PROFILE") == "" && os.Getenv("AWS_ALTERNATE_ACCESS_KEY_ID") == "" {
-		t.Fatal("AWS_ALTERNATE_ACCESS_KEY_ID or AWS_ALTERNATE_PROFILE must be set for acceptance tests")
-	}
-
-	if os.Getenv("AWS_ALTERNATE_ACCESS_KEY_ID") != "" && os.Getenv("AWS_ALTERNATE_SECRET_ACCESS_KEY") == "" {
-		t.Fatal("AWS_ALTERNATE_SECRET_ACCESS_KEY must be set for acceptance tests")
-	}
-}
-
-func testAccEC2ClassicPreCheck(t *testing.T) {
-	client := testAccProvider.Meta().(*AWSClient)
-	platforms := client.supportedplatforms
-	region := client.region
-	if !hasEc2Classic(platforms) {
-		t.Skipf("This test can only run in EC2 Classic, platforms available in %s: %q",
-			region, platforms)
-	}
-}
-
-func testAccHasServicePreCheck(service string, t *testing.T) {
-	if partition, ok := endpoints.PartitionForRegion(endpoints.DefaultPartitions(), testAccGetRegion()); ok {
-		if _, ok := partition.Services()[service]; !ok {
-			t.Skip(fmt.Sprintf("skipping tests; partition does not support %s service", service))
-		}
-	}
-}
-
-func testAccMultipleRegionsPreCheck(t *testing.T) {
-	if partition, ok := endpoints.PartitionForRegion(endpoints.DefaultPartitions(), testAccGetRegion()); ok {
-		if len(partition.Regions()) < 2 {
-			t.Skip("skipping tests; partition only includes a single region")
-		}
-	}
-}
-
-func testAccOrganizationsAccountPreCheck(t *testing.T) {
-	conn := testAccProvider.Meta().(*AWSClient).organizationsconn
-	input := &organizations.DescribeOrganizationInput{}
-	_, err := conn.DescribeOrganization(input)
-	if isAWSErr(err, organizations.ErrCodeAWSOrganizationsNotInUseException, "") {
-		return
-	}
-	if err != nil {
-		t.Fatalf("error describing AWS Organization: %s", err)
-	}
-	t.Skip("skipping tests; this AWS account must not be an existing member of an AWS Organization")
-}
-
-func testAccAlternateAccountProviderConfig() string {
-	return fmt.Sprintf(`
-provider "aws" {
-  access_key = %[1]q
-  alias      = "alternate"
-  profile    = %[2]q
-  secret_key = %[3]q
-}
-`, os.Getenv("AWS_ALTERNATE_ACCESS_KEY_ID"), os.Getenv("AWS_ALTERNATE_PROFILE"), os.Getenv("AWS_ALTERNATE_SECRET_ACCESS_KEY"))
-}
-
-// Provider configuration hardcoded for us-east-1.
-// This should only be necessary for testing ACM Certificates with CloudFront
-// related infrastucture such as API Gateway Domain Names for EDGE endpoints,
-// CloudFront Distribution Viewer Certificates, and Cognito User Pool Domains.
-// Other valid usage is for services only available in us-east-1 such as the
-// Cost and Usage Reporting and Pricing services.
-func testAccUsEast1RegionProviderConfig() string {
-	return fmt.Sprintf(`
-provider "aws" {
-  alias  = "us-east-1"
-  region = "us-east-1"
-}
-`)
-}
-
-func testAccAwsRegionProviderFunc(region string, providers *[]*schema.Provider) func() *schema.Provider {
-	return func() *schema.Provider {
-		if region == "" {
-			log.Println("[DEBUG] No region given")
-			return nil
-		}
-		if providers == nil {
-			log.Println("[DEBUG] No providers given")
-			return nil
-		}
-
-		log.Printf("[DEBUG] Checking providers for AWS region: %s", region)
-		for _, provider := range *providers {
-			// Ignore if Meta is empty, this can happen for validation providers
-			if provider == nil || provider.Meta() == nil {
-				log.Printf("[DEBUG] Skipping empty provider")
-				continue
-			}
-
-			// Ignore if Meta is not AWSClient, this will happen for other providers
-			client, ok := provider.Meta().(*AWSClient)
-			if !ok {
-				log.Printf("[DEBUG] Skipping non-AWS provider")
-				continue
-			}
-
-			clientRegion := client.region
-			log.Printf("[DEBUG] Checking AWS provider region %q against %q", clientRegion, region)
-			if clientRegion == region {
-				log.Printf("[DEBUG] Found AWS provider with region: %s", region)
-				return provider
-			}
-		}
-
-		log.Printf("[DEBUG] No suitable provider found for %q in %d providers", region, len(*providers))
-		return nil
-	}
-}
-
-func testAccCheckWithProviders(f func(*terraform.State, *schema.Provider) error, providers *[]*schema.Provider) resource.TestCheckFunc {
-	return func(s *terraform.State) error {
-		numberOfProviders := len(*providers)
-		for i, provider := range *providers {
-			if provider.Meta() == nil {
-				log.Printf("[DEBUG] Skipping empty provider %d (total: %d)", i, numberOfProviders)
-				continue
-			}
-			log.Printf("[DEBUG] Calling check with provider %d (total: %d)", i, numberOfProviders)
-			if err := f(s, provider); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-}
-
-// Check service API call error for reasons to skip acceptance testing
-// These include missing API endpoints and unsupported API calls
-func testAccPreCheckSkipError(err error) bool {
-	// GovCloud has endpoints that respond with (no message provided after the error code):
-	// AccessDeniedException:
-	// Ignore these API endpoints that exist but are not officially enabled
-	if isAWSErr(err, "AccessDeniedException", "") {
-		return true
-	}
-	// Ignore missing API endpoints
-	if isAWSErr(err, "RequestError", "send request failed") {
-		return true
-	}
-	// Ignore unsupported API calls
-	if isAWSErr(err, "UnknownOperationException", "") {
-		return true
-	}
-	if isAWSErr(err, "UnsupportedOperation", "") {
-		return true
-	}
-	return false
 }
 
 // Check sweeper API call error for reasons to skip sweeping

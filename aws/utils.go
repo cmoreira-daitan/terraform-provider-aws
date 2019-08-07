@@ -3,8 +3,10 @@ package aws
 import (
 	"encoding/base64"
 	"encoding/json"
+	"math/rand"
 	"reflect"
 	"regexp"
+	"time"
 
 	"github.com/hashicorp/terraform/helper/resource"
 )
@@ -51,4 +53,14 @@ func isResourceNotFoundError(err error) bool {
 func isResourceTimeoutError(err error) bool {
 	timeoutErr, ok := err.(*resource.TimeoutError)
 	return ok && timeoutErr.LastError == nil
+}
+
+func randomString(strlen int) string {
+	rand.Seed(time.Now().UTC().UnixNano())
+	const chars = "abcdefghijklmnopqrstuvwxyz"
+	result := make([]byte, strlen)
+	for i := 0; i < strlen; i++ {
+		result[i] = chars[rand.Intn(len(chars))]
+	}
+	return string(result)
 }
