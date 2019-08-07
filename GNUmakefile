@@ -1,7 +1,7 @@
 SWEEP?=us-east-1,us-west-2
 TEST?=./...
 GOFMT_FILES?=$$(find . -name '*.go' |grep -v vendor)
-PKG_NAME=aws
+PKG_NAME=awspresence
 WEBSITE_REPO=github.com/hashicorp/terraform-website
 
 default: build
@@ -21,6 +21,7 @@ testacc: fmtcheck
 
 fmt:
 	@echo "==> Fixing source code with gofmt..."
+	gofmt -s -w ./main.go
 	gofmt -s -w ./$(PKG_NAME)
 
 # Currently required by tf-deploy compile
