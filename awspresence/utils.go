@@ -55,6 +55,16 @@ func isResourceTimeoutError(err error) bool {
 	return ok && timeoutErr.LastError == nil
 }
 
+// interfaceStringSlice converts a Terraform interface slice of strings into a slice of string pointers
+func interfaceStringSlice(src []interface{}) []*string {
+	dst := make([]*string, len(src))
+	for i, v := range src {
+		vs := v.(string)
+		dst[i] = &vs
+	}
+	return dst
+}
+
 func randomString(strlen int) string {
 	rand.Seed(time.Now().UTC().UnixNano())
 	const chars = "abcdefghijklmnopqrstuvwxyz"
